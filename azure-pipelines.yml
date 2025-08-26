@@ -27,13 +27,29 @@ jobs:
           backendAzureRmContainerName: 'cntrjobs'
           backendAzureRmKey: 'newz.tfstate'
 
-  # ✅ Job 2: Terraform Plan (depends on Init)
+  # ✅ Job 2: Terraform Plan
   - job: TerraformPlan
     displayName: "Terraform Plan"
     dependsOn: TerraformInit
     pool:
       name: agent-ka-pool
     steps:
+      - task: TerraformInstaller@1
+        displayName: 'Install Terraform'
+        inputs:
+          terraformVersion: 'latest'
+
+      - task: TerraformTask@5
+        displayName: 'Terraform Init (before Plan)'
+        inputs:
+          provider: 'azurerm'
+          command: 'init'
+          workingDirectory: '$(System.DefaultWorkingDirectory)/module'
+          backendServiceArm: 'servocon'
+          backendAzureRmStorageAccountName: 'strjobs'
+          backendAzureRmContainerName: 'cntrjobs'
+          backendAzureRmKey: 'newz.tfstate'
+
       - task: TerraformTask@5
         displayName: 'Terraform Plan'
         inputs:
@@ -42,7 +58,7 @@ jobs:
           workingDirectory: '$(System.DefaultWorkingDirectory)/module'
           environmentServiceNameAzureRM: 'servocon'
 
-  # ✅ Job 3: Manual Approval (depends on Plan)
+  # ✅ Job 3: Manual Approval
   - job: ManualApproval
     displayName: "Wait for Manual Validation"
     dependsOn: TerraformPlan
@@ -55,7 +71,7 @@ jobs:
           onTimeout: 'reject'
           timeout: '1h'
 
-  # ✅ Job 4: Terraform Apply (only runs on main branch, depends on approval)
+  # ✅ Job 4: Terraform Apply
   - job: TerraformApply
     displayName: "Terraform Apply"
     dependsOn: ManualApproval
