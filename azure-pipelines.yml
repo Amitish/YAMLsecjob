@@ -1,0 +1,88 @@
+trigger:
+  branches:
+    include:
+      - main
+      - feature/*
+
+jobs:
+  # ✅ Job 1: Terraform Init
+  - job: TerraformInit
+    displayName: "Terraform Init"
+    pool:
+      name: agent-ka-pool
+    steps:
+      - task: TerraformInstaller@1
+        displayName: 'Install Terraform'
+        inputs:
+          terraformVersion: 'latest'
+
+      - task: TerraformTask@5
+        displayName: 'Terraform Init'
+        inputs:
+          provider: 'azurerm'
+          command: 'init'
+          workingDirectory: '$(System.DefaultWorkingDirectory)/module'
+          backendServiceArm: 'servocon'
+          backendAzureRmStorageAccountName: 'strjobs'
+          backendAzureRmContainerName: 'cntrjobs'
+          backendAzureRmKey: 'newz.tfstate'
+
+  # ✅ Job 2: Terraform Plan (depends on Init)
+  - job: TerraformPlan
+    displayName: "Terraform Plan"
+    dependsOn: TerraformInit
+    pool:
+      name: agent-ka-pool
+    steps:
+      - task: TerraformTask@5
+        displayName: 'Terraform Plan'
+        inputs:
+          provider: 'azurerm'
+          command: 'plan'
+          workingDirectory: '$(System.DefaultWorkingDirectory)/module'
+          environmentServiceNameAzureRM: 'servocon'
+
+  # ✅ Job 3: Manual Approval (depends on Plan)
+  - job: ManualApproval
+    displayName: "Wait for Manual Validation"
+    dependsOn: TerraformPlan
+    pool:
+      name: server
+    steps:
+      - task: ManualValidation@0
+        inputs:
+          instructions: 'Please review Terraform Plan and Security Scan results. Approve to proceed with Apply.'
+          onTimeout: 'reject'
+          timeout: '1h'
+
+  # ✅ Job 4: Terraform Apply (only runs on main branch, depends on approval)
+  - job: TerraformApply
+    displayName: "Terraform Apply"
+    dependsOn: ManualApproval
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    pool:
+      name: agent-ka-pool
+    steps:
+      - task: TerraformInstaller@1
+        displayName: 'Install Terraform'
+        inputs:
+          terraformVersion: 'latest'
+
+      - task: TerraformTask@5
+        displayName: 'Terraform Init (Again in Apply)'
+        inputs:
+          provider: 'azurerm'
+          command: 'init'
+          workingDirectory: '$(System.DefaultWorkingDirectory)/module'
+          backendServiceArm: 'servocon'
+          backendAzureRmStorageAccountName: 'strjobs'
+          backendAzureRmContainerName: 'cntrjobs'
+          backendAzureRmKey: 'newz.tfstate'
+          
+      - task: TerraformTask@5
+        displayName: 'Terraform Apply'
+        inputs:
+          provider: 'azurerm'
+          command: 'apply'
+          workingDirectory: '$(System.DefaultWorkingDirectory)/module'
+          environmentServiceNameAzureRM: 'servocon'
