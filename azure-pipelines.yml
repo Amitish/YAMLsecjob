@@ -1,3 +1,13 @@
+#  To final flow ye hoga:
+
+# Terraform Init → Terraform Plan → (agent pool)
+
+# Trivy Scan → (agent pool)
+
+# Manual Validation → (server pool)
+
+# Terraform Apply → (agent pool)
+
 trigger:
   branches:
     include:
