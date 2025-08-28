@@ -1,12 +1,12 @@
-#  To final flow ye hoga:
+# #  To final flow ye hoga:
 
-# Terraform Init → Terraform Plan → (agent pool)
+# # Terraform Init → Terraform Plan → (agent pool)
 
-# Trivy Scan → (agent pool)
+# # Trivy Scan → (agent pool)
 
-# Manual Validation → (server pool)
+# # Manual Validation → (server pool)
 
-# Terraform Apply → (agent pool)
+# # Terraform Apply → (agent pool)
 
 trigger:
   branches:
@@ -37,13 +37,29 @@ jobs:
           backendAzureRmContainerName: 'cntrjobs'
           backendAzureRmKey: 'newz.tfstate'
 
-  # ✅ Job 2: Terraform Plan (depends on Init)
+  # ✅ Job 2: Terraform Plan
   - job: TerraformPlan
     displayName: "Terraform Plan"
     dependsOn: TerraformInit
     pool:
       name: agent-ka-pool
     steps:
+      - task: TerraformInstaller@1
+        displayName: 'Install Terraform'
+        inputs:
+          terraformVersion: 'latest'
+
+      - task: TerraformTask@5
+        displayName: 'Terraform Init (before Plan)'
+        inputs:
+          provider: 'azurerm'
+          command: 'init'
+          workingDirectory: '$(System.DefaultWorkingDirectory)/module'
+          backendServiceArm: 'servocon'
+          backendAzureRmStorageAccountName: 'strjobs'
+          backendAzureRmContainerName: 'cntrjobs'
+          backendAzureRmKey: 'newz.tfstate'
+
       - task: TerraformTask@5
         displayName: 'Terraform Plan'
         inputs:
@@ -52,12 +68,28 @@ jobs:
           workingDirectory: '$(System.DefaultWorkingDirectory)/module'
           environmentServiceNameAzureRM: 'servocon'
 
-  # ✅ Job 3: Manual Approval (depends on Plan)
-  - job: ManualApproval
-    displayName: "Wait for Manual Validation"
+  # ✅ Job 3: Trivy Security Scan
+  - job: TrivyScan
+    displayName: "Trivy IaC Security Scan"
     dependsOn: TerraformPlan
     pool:
-      name: server
+      name: agent-ka-pool   # 👈 Trivy agent pool par hi chalega
+    steps:
+      - task: trivy@2
+        displayName: "Trivy IaC (Filesystem) Security Scan"
+        inputs:
+          type: 'filesystem'
+          target: '$(System.DefaultWorkingDirectory)/module'
+          scanners: 'vuln,misconfig,secret'
+          severity: 'HIGH,CRITICAL'
+          exitCode: '1'  # agar HIGH ya CRITICAL vulnerabilities dikhe — pipeline fail ho
+
+  # ✅ Job 4: Manual Approval
+  - job: ManualApproval
+    displayName: "Wait for Manual Validation"
+    dependsOn: TrivyScan
+    pool:
+      name: server   # 👈 Manual validation server pool pe chalega
     steps:
       - task: ManualValidation@0
         inputs:
@@ -65,7 +97,7 @@ jobs:
           onTimeout: 'reject'
           timeout: '1h'
 
-  # ✅ Job 4: Terraform Apply (only runs on main branch, depends on approval)
+  # ✅ Job 5: Terraform Apply
   - job: TerraformApply
     displayName: "Terraform Apply"
     dependsOn: ManualApproval
@@ -96,3 +128,93 @@ jobs:
           command: 'apply'
           workingDirectory: '$(System.DefaultWorkingDirectory)/module'
           environmentServiceNameAzureRM: 'servocon'
+
+
+# trigger:
+#   branches:
+#     include:
+#       - main
+#       - feature/*
+
+# jobs:
+#   # ✅ Job 1: Terraform Init
+#   - job: TerraformInit
+#     displayName: "Terraform Init"
+#     pool:
+#       name: agent-ka-pool
+#     steps:
+#       - task: TerraformInstaller@1
+#         displayName: 'Install Terraform'
+#         inputs:
+#           terraformVersion: 'latest'
+
+#       - task: TerraformTask@5
+#         displayName: 'Terraform Init'
+#         inputs:
+#           provider: 'azurerm'
+#           command: 'init'
+#           workingDirectory: '$(System.DefaultWorkingDirectory)/module'
+#           backendServiceArm: 'servocon'
+#           backendAzureRmStorageAccountName: 'strjobs'
+#           backendAzureRmContainerName: 'cntrjobs'
+#           backendAzureRmKey: 'newz.tfstate'
+
+#   # ✅ Job 2: Terraform Plan (depends on Init)
+#   - job: TerraformPlan
+#     displayName: "Terraform Plan"
+#     dependsOn: TerraformInit
+#     pool:
+#       name: agent-ka-pool
+#     steps:
+#       - task: TerraformTask@5
+#         displayName: 'Terraform Plan'
+#         inputs:
+#           provider: 'azurerm'
+#           command: 'plan'
+#           workingDirectory: '$(System.DefaultWorkingDirectory)/module'
+#           environmentServiceNameAzureRM: 'servocon'
+
+#   # ✅ Job 3: Manual Approval (depends on Plan)
+#   - job: ManualApproval
+#     displayName: "Wait for Manual Validation"
+#     dependsOn: TerraformPlan
+#     pool:
+#       name: server
+#     steps:
+#       - task: ManualValidation@0
+#         inputs:
+#           instructions: 'Please review Terraform Plan and Security Scan results. Approve to proceed with Apply.'
+#           onTimeout: 'reject'
+#           timeout: '1h'
+
+#   # ✅ Job 4: Terraform Apply (only runs on main branch, depends on approval)
+#   - job: TerraformApply
+#     displayName: "Terraform Apply"
+#     dependsOn: ManualApproval
+#     condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+#     pool:
+#       name: agent-ka-pool
+#     steps:
+#       - task: TerraformInstaller@1
+#         displayName: 'Install Terraform'
+#         inputs:
+#           terraformVersion: 'latest'
+
+#       - task: TerraformTask@5
+#         displayName: 'Terraform Init (Again in Apply)'
+#         inputs:
+#           provider: 'azurerm'
+#           command: 'init'
+#           workingDirectory: '$(System.DefaultWorkingDirectory)/module'
+#           backendServiceArm: 'servocon'
+#           backendAzureRmStorageAccountName: 'strjobs'
+#           backendAzureRmContainerName: 'cntrjobs'
+#           backendAzureRmKey: 'newz.tfstate'
+          
+#       - task: TerraformTask@5
+#         displayName: 'Terraform Apply'
+#         inputs:
+#           provider: 'azurerm'
+#           command: 'apply'
+#           workingDirectory: '$(System.DefaultWorkingDirectory)/module'
+#           environmentServiceNameAzureRM: 'servocon'
